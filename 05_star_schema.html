@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DMS580S – Star Schema Diagram</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #f0f4f8;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    display: flex; flex-direction: column;
+    align-items: center; padding: 24px 16px;
+    min-height: 100vh;
+  }
+  h1 {
+    font-size: 1.15rem; font-weight: 700; color: #1a2e4a;
+    margin-bottom: 4px; letter-spacing: 0.04em;
+  }
+  .subtitle {
+    font-size: 0.78rem; color: #556; margin-bottom: 28px;
+  }
+  .canvas {
+    position: relative;
+    width: 860px; height: 680px;
+  }
+  svg.lines {
+    position: absolute; top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+  }
+
+  /* ── Table card ── */
+  .tbl {
+    position: absolute;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 12px rgba(0,0,0,0.13);
+    overflow: hidden;
+    min-width: 188px;
+  }
+  .tbl-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 14px;
+    font-size: 0.8rem; font-weight: 700; color: #fff;
+    letter-spacing: 0.03em;
+  }
+  .tbl-header .icon { font-size: 1rem; }
+  .tbl-body { padding: 8px 0; }
+  .field {
+    display: flex; justify-content: space-between;
+    padding: 3px 14px;
+    font-size: 0.72rem; color: #334;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .field:last-child { border-bottom: none; }
+  .field .fname { font-weight: 500; }
+  .field .ftype { color: #888; font-style: italic; font-size: 0.68rem; }
+  .pk  { color: #e07b00; font-weight: 700; }
+  .fk  { color: #1976d2; font-weight: 600; }
+  .pk-icon::before { content: "🔑 "; font-size: 0.65rem; }
+  .fk-icon::before { content: "🔗 "; font-size: 0.65rem; }
+
+  /* ── Colours per table ── */
+  .fact-header  { background: #1a2e4a; }
+  .dim1-header  { background: #1565c0; }
+  .dim2-header  { background: #1976d2; }
+  .dim3-header  { background: #0277bd; }
+  .dim4-header  { background: #006064; }
+
+  /* ── Legend ── */
+  .legend {
+    display: flex; gap: 22px; margin-top: 22px;
+    font-size: 0.75rem; color: #445;
+  }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-dot {
+    width: 12px; height: 12px; border-radius: 2px;
+  }
+  .note {
+    margin-top: 10px; font-size: 0.68rem; color: #778;
+    max-width: 860px; text-align: center; line-height: 1.5;
+  }
+</style>
+</head>
+<body>
+
+<h1>Star Schema — Online Electronics Retail Data Warehouse</h1>
+<p class="subtitle">DMS580S Mini Project 2026 &nbsp;|&nbsp; Domain: Online Electronics Retail</p>
+
+<div class="canvas" id="canvas">
+
+  <!-- SVG connector lines (drawn relative to canvas) -->
+  <svg class="lines" id="svg-lines" xmlns="http://www.w3.org/2000/svg"></svg>
+
+  <!-- ── FACT TABLE (centre) ── -->
+  <div class="tbl" id="fact" style="left:316px; top:224px;">
+    <div class="tbl-header fact-header">
+      <span class="icon">⭐</span> fact_sales
+    </div>
+    <div class="tbl-body">
+      <div class="field"><span class="fname pk-icon pk">sale_id</span><span class="ftype">SERIAL PK</span></div>
+      <div class="field"><span class="fname fk-icon fk">customer_key</span><span class="ftype">INT FK</span></div>
+      <div class="field"><span class="fname fk-icon fk">product_key</span><span class="ftype">INT FK</span></div>
+      <div class="field"><span class="fname fk-icon fk">time_key</span><span class="ftype">INT FK</span></div>
+      <div class="field"><span class="fname fk-icon fk">activity_key</span><span class="ftype">INT FK</span></div>
+      <div class="field"><span class="fname">quantity</span><span class="ftype">INT</span></div>
+      <div class="field"><span class="fname">amount</span><span class="ftype">NUMERIC(10,2)</span></div>
+    </div>
+  </div>
+
+  <!-- ── DIM: customer (top-left) ── -->
+  <div class="tbl" id="dim-cust" style="left:22px; top:30px;">
+    <div class="tbl-header dim1-header">
+      <span class="icon">👤</span> dim_customer
+    </div>
+    <div class="tbl-body">
+      <div class="field"><span class="fname pk-icon pk">customer_key</span><span class="ftype">SERIAL PK</span></div>
+      <div class="field"><span class="fname">customer_name</span><span class="ftype">VARCHAR(100)</span></div>
+      <div class="field"><span class="fname">email</span><span class="ftype">VARCHAR(100)</span></div>
+      <div class="field"><span class="fname">city</span><span class="ftype">VARCHAR(50)</span></div>
+      <div class="field"><span class="fname">country</span><span class="ftype">VARCHAR(50)</span></div>
+    </div>
+  </div>
+
+  <!-- ── DIM: product (top-right) ── -->
+  <div class="tbl" id="dim-prod" style="left:630px; top:30px;">
+    <div class="tbl-header dim2-header">
+      <span class="icon">📦</span> dim_product
+    </div>
+    <div class="tbl-body">
+      <div class="field"><span class="fname pk-icon pk">product_key</span><span class="ftype">SERIAL PK</span></div>
+      <div class="field"><span class="fname">product_name</span><span class="ftype">VARCHAR(100)</span></div>
+      <div class="field"><span class="fname">category</span><span class="ftype">VARCHAR(50)</span></div>
+      <div class="field"><span class="fname">brand</span><span class="ftype">VARCHAR(50)</span></div>
+      <div class="field"><span class="fname">unit_price</span><span class="ftype">NUMERIC(10,2)</span></div>
+    </div>
+  </div>
+
+  <!-- ── DIM: time (bottom-left) ── -->
+  <div class="tbl" id="dim-time" style="left:22px; top:460px;">
+    <div class="tbl-header dim3-header">
+      <span class="icon">📅</span> dim_time
+    </div>
+    <div class="tbl-body">
+      <div class="field"><span class="fname pk-icon pk">time_key</span><span class="ftype">SERIAL PK</span></div>
+      <div class="field"><span class="fname">full_date</span><span class="ftype">DATE</span></div>
+      <div class="field"><span class="fname">day</span><span class="ftype">INT</span></div>
+      <div class="field"><span class="fname">month</span><span class="ftype">INT</span></div>
+      <div class="field"><span class="fname">month_name</span><span class="ftype">VARCHAR(10)</span></div>
+      <div class="field"><span class="fname">quarter</span><span class="ftype">INT</span></div>
+      <div class="field"><span class="fname">year</span><span class="ftype">INT</span></div>
+      <div class="field"><span class="fname">day_of_week</span><span class="ftype">VARCHAR(10)</span></div>
+    </div>
+  </div>
+
+  <!-- ── DIM: activity_type (bottom-right) ── -->
+  <div class="tbl" id="dim-act" style="left:640px; top:480px;">
+    <div class="tbl-header dim4-header">
+      <span class="icon">🖱️</span> dim_activity_type
+    </div>
+    <div class="tbl-body">
+      <div class="field"><span class="fname pk-icon pk">activity_key</span><span class="ftype">SERIAL PK</span></div>
+      <div class="field"><span class="fname">activity_type</span><span class="ftype">VARCHAR(20)</span></div>
+    </div>
+  </div>
+
+</div><!-- /canvas -->
+
+<div class="legend">
+  <div class="legend-item">
+    <div class="legend-dot" style="background:#1a2e4a;"></div> Fact Table
+  </div>
+  <div class="legend-item">
+    <div class="legend-dot" style="background:#1565c0;"></div> Dimension Tables
+  </div>
+  <div class="legend-item" style="gap:4px;">
+    <span style="color:#e07b00; font-weight:700;">🔑</span> Primary Key
+  </div>
+  <div class="legend-item" style="gap:4px;">
+    <span style="color:#1976d2; font-weight:700;">🔗</span> Foreign Key
+  </div>
+</div>
+
+<p class="note">
+  Each dimension table connects to <strong>fact_sales</strong> via a surrogate key.
+  The fact table stores one row per sale event, with measures <em>quantity</em> and <em>amount</em>.
+  This star schema underpins the <code>customer_analytics</code> integrated table
+  and all Metabase dashboards.
+</p>
+
+<script>
+// Draw SVG lines from fact table to each dimension
+(function () {
+  const svg = document.getElementById('svg-lines');
+  const canvas = document.getElementById('canvas');
+  const canvasRect = canvas.getBoundingClientRect();
+
+  function centre(el) {
+    const r = el.getBoundingClientRect();
+    return {
+      x: r.left - canvasRect.left + r.width  / 2,
+      y: r.top  - canvasRect.top  + r.height / 2,
+    };
+  }
+
+  function edgePoint(el, tx, ty) {
+    const r = el.getBoundingClientRect();
+    const cx = r.left - canvasRect.left + r.width  / 2;
+    const cy = r.top  - canvasRect.top  + r.height / 2;
+    const dx = tx - cx, dy = ty - cy;
+    const hw = r.width / 2, hh = r.height / 2;
+    const scaleX = Math.abs(dx) > 0 ? hw / Math.abs(dx) : Infinity;
+    const scaleY = Math.abs(dy) > 0 ? hh / Math.abs(dy) : Infinity;
+    const scale  = Math.min(scaleX, scaleY);
+    return { x: cx + dx * scale, y: cy + dy * scale };
+  }
+
+  const fact = document.getElementById('fact');
+  const dims = [
+    { id: 'dim-cust', color: '#1565c0' },
+    { id: 'dim-prod', color: '#1976d2' },
+    { id: 'dim-time', color: '#0277bd' },
+    { id: 'dim-act',  color: '#006064' },
+  ];
+
+  const fc = centre(fact);
+  dims.forEach(({ id, color }) => {
+    const dim = document.getElementById(id);
+    const dc  = centre(dim);
+    const fp  = edgePoint(fact, dc.x, dc.y);
+    const dp  = edgePoint(dim,  fc.x, fc.y);
+
+    // Relationship line
+    const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', fp.x); line.setAttribute('y1', fp.y);
+    line.setAttribute('x2', dp.x); line.setAttribute('y2', dp.y);
+    line.setAttribute('stroke', color);
+    line.setAttribute('stroke-width', '2');
+    line.setAttribute('stroke-dasharray', '6 3');
+    svg.appendChild(line);
+
+    // Circle at dim end (1 side of 1-to-many)
+    const circ = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circ.setAttribute('cx', dp.x); circ.setAttribute('cy', dp.y);
+    circ.setAttribute('r', '5');
+    circ.setAttribute('fill', color);
+    svg.appendChild(circ);
+
+    // Arrow at fact end (many side)
+    const angle = Math.atan2(fp.y - dp.y, fp.x - dp.x);
+    const arrowSize = 9;
+    const ax = fp.x, ay = fp.y;
+    const p1x = ax - arrowSize * Math.cos(angle - 0.4);
+    const p1y = ay - arrowSize * Math.sin(angle - 0.4);
+    const p2x = ax - arrowSize * Math.cos(angle + 0.4);
+    const p2y = ay - arrowSize * Math.sin(angle + 0.4);
+    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
+    poly.setAttribute('points', `${ax},${ay} ${p1x},${p1y} ${p2x},${p2y}`);
+    poly.setAttribute('fill', color);
+    svg.appendChild(poly);
+  });
+})();
+</script>
+</body>
+</html>
