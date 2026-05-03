@@ -1,0 +1,90 @@
+services:
+
+  # ----------------------------
+  # MYSQL (OLTP sources)
+  # ----------------------------
+  mysql-node-7:
+    image: mysql:8
+    container_name: mysql-node-71
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: bank
+    ports:
+      - "3309:3306"
+
+  mysql-node-8:
+    image: mysql:8
+    container_name: mysql-node-81
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: bank
+    ports:
+      - "3310:3306"
+
+  # ----------------------------
+  # MONGODB (NoSQL layer)
+  # ----------------------------
+  mongodb:
+    image: mongo:6
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+
+  # ----------------------------
+  # POSTGRES (Data Warehouse)
+  # ----------------------------
+  postgres:
+    image: postgres:15
+    container_name: postgres-dw
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: adminpass
+      POSTGRES_DB: warehouse
+    ports:
+      - "5432:5432"
+
+  # Hadoop NameNode
+  namenode:
+    image: apache/hadoop:3.3.6
+    container_name: namenode
+    environment:
+      - CLUSTER_NAME=demo
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:8020
+    ports:
+      - "9870:9870"
+      - "8020:8020"
+    volumes:
+      - namenode-data:/hadoop/dfs/name
+
+  # Hadoop DataNode
+  datanode:
+    image: apache/hadoop:3.3.6
+    container_name: datanode
+    environment:
+      - SERVICE_PRECONDITION=namenode:8020
+      - CORE_CONF_fs_defaultFS=hdfs://namenode:8020
+    ports:
+      - "9864:9864"
+    depends_on:
+      - namenode
+    volumes:
+      - datanode-data:/hadoop/dfs/data
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: metabase
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres
+
+# ----------------------------
+# VOLUMES (databases only)
+# ----------------------------
+volumes:
+  mysql7-data:
+  mysql8-data:
+  mongo-data:
+  postgres-data:
+  namenode-data:
+  datanode-data:
