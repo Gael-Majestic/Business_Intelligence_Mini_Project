@@ -1,0 +1,5 @@
+# What 03_etl_pipeline.py needs. Versions are pinned so every run installs the same code.
+pandas==3.1.0                   # cleaning and reshaping (the T in ETL)
+mysql-connector-python==26.10.0 # extract from MySQL
+pymongo==4.19.0                 # extract from MongoDB
+psycopg2-binary==2.9.13         # load into PostgreSQL (COPY)

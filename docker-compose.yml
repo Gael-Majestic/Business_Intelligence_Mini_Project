@@ -1,90 +1,140 @@
+# The pipeline's databases and Metabase. On first start each database seeds itself
+# from the scripts in this folder (files in /docker-entrypoint-initdb.d run once,
+# when the data volume is empty), so the whole setup is:
+#
+#   docker compose up -d --wait      # start and wait until every health check passes
+#   python 03_etl_pipeline.py        # extract → transform → load
+#
+# Passwords are local demonstration values; override them in a .env file.
+# Ports are published on 127.0.0.1 only, so other machines cannot reach the databases.
+
 services:
 
   # ----------------------------
-  # MYSQL (OLTP sources)
+  # MYSQL (OLTP source: orders)
   # ----------------------------
-  mysql-node-7:
-    image: mysql:8
-    container_name: mysql-node-71
+  mysql:
+    image: mysql:8.4.13
     environment:
-      MYSQL_ROOT_PASSWORD: rootpass
-      MYSQL_DATABASE: bank
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
     ports:
-      - "3309:3306"
-
-  mysql-node-8:
-    image: mysql:8
-    container_name: mysql-node-81
-    environment:
-      MYSQL_ROOT_PASSWORD: rootpass
-      MYSQL_DATABASE: bank
-    ports:
-      - "3310:3306"
+      - "127.0.0.1:3309:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      # Creates electronics_retail with its tables, seed rows and the v_orders_export view
+      - ./01_mysql_oltp.sql:/docker-entrypoint-initdb.d/01_mysql_oltp.sql:ro
+    healthcheck:
+      # Over TCP on purpose: while the init scripts run, MySQL accepts no TCP
+      # connections, so "healthy" means the seed has finished.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$${MYSQL_ROOT_PASSWORD} --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
 
   # ----------------------------
-  # MONGODB (NoSQL layer)
+  # MONGODB (OLTP source: customer activity)
   # ----------------------------
   mongodb:
-    image: mongo:6
-    container_name: mongodb
+    image: mongo:8.0.34
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - mongo-data:/data/db
+      - ./02_mongodb_seed.js:/docker-entrypoint-initdb.d/02_mongodb_seed.js:ro
+    healthcheck:
+      # Healthy only once the seed script has inserted the activity documents.
+      test: ["CMD", "mongosh", "--quiet", "--eval",
+             "quit(db.getSiblingDB('electronics_retail_behavior').customer_activity.countDocuments() > 0 ? 0 : 1)"]
+      interval: 5s
+      timeout: 10s
+      retries: 30
 
   # ----------------------------
   # POSTGRES (Data Warehouse)
   # ----------------------------
   postgres:
-    image: postgres:15
-    container_name: postgres-dw
+    image: postgres:16.15-alpine
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: adminpass
-      POSTGRES_DB: warehouse
+      POSTGRES_USER: ${PG_USER:-admin}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-adminpass}
+      # The image creates this database, then runs 04_postgresql_dw.sql in it.
+      POSTGRES_DB: electronics_dw
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./04_postgresql_dw.sql:/docker-entrypoint-initdb.d/04_postgresql_dw.sql:ro
+    healthcheck:
+      # Over TCP: during initialisation PostgreSQL listens on its Unix socket only.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d electronics_dw"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
 
-  # Hadoop NameNode
+  # ----------------------------
+  # METABASE (dashboards on the warehouse)
+  # ----------------------------
+  metabase:
+    image: metabase/metabase:v0.64.3.4
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - metabase-data:/metabase-data
+    environment:
+      MB_DB_FILE: /metabase-data/metabase.db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:3000/api/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+
+  # ----------------------------
+  # Multi-node lab from the module (not used by the ETL).
+  # Started only on request:  docker compose --profile cluster up -d
+  # ----------------------------
+  mysql-node-8:
+    image: mysql:8.4.13
+    profiles: ["cluster"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpass}
+    ports:
+      - "127.0.0.1:3310:3306"
+    volumes:
+      - mysql8-data:/var/lib/mysql
+
+  # Hadoop NameNode and DataNode, configured the way the apache/hadoop image
+  # expects: each CORE-SITE.XML_* / HDFS-SITE.XML_* variable becomes a property
+  # in that XML file. HDFS data is not kept between runs (no volume).
   namenode:
     image: apache/hadoop:3.3.6
-    container_name: namenode
-    environment:
-      - CLUSTER_NAME=demo
-      - CORE_CONF_fs_defaultFS=hdfs://namenode:8020
+    profiles: ["cluster"]
+    hostname: namenode
+    command: ["hdfs", "namenode"]
+    environment: &hadoop-config
+      ENSURE_NAMENODE_DIR: /tmp/hadoop-root/dfs/name   # format HDFS on first start
+      CORE-SITE.XML_fs.defaultFS: hdfs://namenode
+      HDFS-SITE.XML_dfs.replication: "1"
     ports:
-      - "9870:9870"
-      - "8020:8020"
-    volumes:
-      - namenode-data:/hadoop/dfs/name
+      - "127.0.0.1:9870:9870"   # NameNode web UI
 
-  # Hadoop DataNode
   datanode:
     image: apache/hadoop:3.3.6
-    container_name: datanode
-    environment:
-      - SERVICE_PRECONDITION=namenode:8020
-      - CORE_CONF_fs_defaultFS=hdfs://namenode:8020
-    ports:
-      - "9864:9864"
+    profiles: ["cluster"]
+    command: ["hdfs", "datanode"]
+    environment: *hadoop-config
     depends_on:
       - namenode
-    volumes:
-      - datanode-data:/hadoop/dfs/data
-
-  metabase:
-    image: metabase/metabase:latest
-    container_name: metabase
-    ports:
-      - "3000:3000"
-    depends_on:
-      - postgres
 
 # ----------------------------
-# VOLUMES (databases only)
+# VOLUMES: data survives `docker compose down` (remove it with `down -v`)
 # ----------------------------
 volumes:
-  mysql7-data:
-  mysql8-data:
+  mysql-data:
   mongo-data:
   postgres-data:
-  namenode-data:
-  datanode-data:
+  metabase-data:
+  mysql8-data:

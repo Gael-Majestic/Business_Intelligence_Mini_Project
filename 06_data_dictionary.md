@@ -19,7 +19,7 @@
 | order_date | DATE | No | Date the order was placed. Format: YYYY-MM-DD. |
 | status | VARCHAR(20) | Yes | Order status. All records in this dataset are 'Completed'. |
 | city | VARCHAR(50) | Yes | Customer's city of residence. |
-| country | VARCHAR(50) | Yes | Customer's country (DRC or South Africa). |
+| country | VARCHAR(50) | Yes | Customer's country. All sample customers are in South Africa. |
 
 ---
 
@@ -54,18 +54,20 @@
 
 ### Dimension Tables (Star Schema)
 
-| Table | Grain | Key Field |
-|-------|-------|-----------|
-| `dim_customer` | One row per unique customer | customer_key |
-| `dim_product` | One row per unique product SKU | product_key |
-| `dim_time` | One row per calendar date | time_key |
-| `dim_activity_type` | One row per activity type (3 rows total) | activity_key |
+| Table | Grain | Key Field | Loaded from |
+|-------|-------|-----------|-------------|
+| `dim_customer` | One row per unique customer | customer_key | MySQL `customers` (name, email, city, country) |
+| `dim_product` | One row per unique product SKU | product_key | MySQL `products` (name, category, brand, list price) |
+| `dim_time` | One row per calendar date with an order | time_key | Distinct `orders_dw.order_date` values |
+| `dim_activity_type` | One row per activity type (3 rows total) | activity_key | The three valid activity values |
 
 ### Fact Table (Star Schema)
 
-| Table | Grain | Measures |
-|-------|-------|---------|
-| `fact_sales` | One row per sale event | quantity, amount |
+| Table | Grain | Measures | Loaded from |
+|-------|-------|---------|-------------|
+| `fact_sales` | One row per sale event (order) | quantity, amount | `orders_dw`, with surrogate keys looked up by customer name, product name and order date; activity is `Purchased` |
+
+The ETL checks that `fact_sales` has exactly as many rows as `orders_dw`: an order whose customer, product or date found no dimension row would otherwise disappear from every star-schema report.
 
 ---
 
@@ -87,7 +89,7 @@ A `Purchased` record without a prior `Viewed` or `Added to Cart` record in the s
 All `amount` and `unit_price` values are denominated in **USD**. No currency conversion is applied. Analysts should note this when comparing to local-currency KPIs.
 
 ### BR-05: ETL Idempotency
-All three DW tables are truncated before each ETL run (`TRUNCATE TABLE`). The pipeline is safe to re-run; data is replaced, not duplicated.
+All warehouse tables (the three core tables and the star schema) are truncated before each ETL run (`TRUNCATE ... RESTART IDENTITY CASCADE`), and the whole load runs in one transaction. The pipeline is safe to re-run; data is replaced, not duplicated, and a failed run leaves the previous data in place.
 
 ### BR-06: Status Filter
 Only orders with `status = 'Completed'` should be used in revenue aggregations. Returns and cancellations (if introduced in future data) will carry different status values and must be excluded from revenue metrics.
@@ -95,11 +97,11 @@ Only orders with `status = 'Completed'` should be used in revenue aggregations. 
 ### BR-07: Timestamp Normalization
 MongoDB `ISODate` objects are stored with UTC timezone. During ETL, the timezone offset is stripped and the value is stored as a naive `TIMESTAMP` in PostgreSQL. Analysts should treat all timestamps as UTC.
 
-### BR-08: Country Segmentation
-The dataset covers two countries: **DRC** (Kinshasa, Lubumbashi, Goma) and **South Africa** (Johannesburg, Cape Town, Durban, Pretoria). Country-level aggregations split on the `country` field in `orders_dw`.
+### BR-08: Geographic Segmentation
+The sample dataset covers one country, **South Africa**, across six cities (Johannesburg, Cape Town, Durban, Pretoria, Port Elizabeth, Bloemfontein). Geographic aggregations split on the `country` and `city` fields in `orders_dw`; the schema is ready for more countries.
 
 ### BR-09: Minimum Record Requirements
-The pipeline enforces a minimum dataset size at load time:
+The pipeline enforces a minimum dataset size after the transform step (`check_minimum_rows` in `03_etl_pipeline.py`) and stops before loading if it is not met:
 - `orders_dw` must contain ≥ 30 rows
 - `customer_activity` must contain ≥ 15 rows
 Any run producing fewer rows should be investigated for extraction errors.

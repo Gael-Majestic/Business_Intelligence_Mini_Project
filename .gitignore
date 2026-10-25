@@ -1,55 +1,26 @@
-# ----------------------------
-# OS / system files
-# ----------------------------
-.DS_Store
-Thumbs.db
-
-# ----------------------------
-# Logs
-# ----------------------------
-*.log
-
-# ----------------------------
-# Environment / secrets
-# ----------------------------
+# Local settings and secrets
 .env
 
-# ----------------------------
-# Python (if you use scripts)
-# ----------------------------
+# Python
 __pycache__/
-*.pyc
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
 
-# ----------------------------
-# Node (if any frontend tools)
-# ----------------------------
-node_modules/
+# ETL working files (if ETL_WORK_DIR points inside the repository)
+*_raw.csv
+*_clean.csv
 
-# ----------------------------
-# Database files / volumes
-# ----------------------------
-*.sql
+# Large generated data files
+*.tsv
 *.dump
 *.bak
+*.log
 
-# ----------------------------
-# Docker volumes (VERY IMPORTANT)
-# ----------------------------
-mysql7-data/
-mysql8-data/
-mongo-data/
-postgres-data/
-namenode-data/
-datanode-data/
-
-# ----------------------------
-# Large generated data files
-# ----------------------------
-
-*.tsv
-
-# ----------------------------
-# IDE files
-# ----------------------------
+# OS and editors
+.DS_Store
+Thumbs.db
 .vscode/
 .idea/

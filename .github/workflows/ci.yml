@@ -1,0 +1,132 @@
+# Continuous integration for the BI pipeline.
+#   test      lint and unit-test the ETL script (no databases)
+#   pipeline  start MySQL, MongoDB and PostgreSQL with Compose, run the real ETL twice,
+#             check every warehouse table, run the analytical queries, start Metabase
+#   cluster   the optional Hadoop profile starts and its DataNode registers
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Lint and unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check --output-format=github .
+      - run: ruff format --check .
+      - run: pytest
+
+  pipeline:
+    name: End-to-end pipeline
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements*.txt
+      - run: pip install -r requirements.txt
+
+      # --wait returns once every health check passes, i.e. once each database
+      # has finished running its seed script.
+      - name: Start and seed the databases
+        run: docker compose up -d --wait --wait-timeout 300 mysql mongodb postgres
+
+      - name: Run the ETL
+        run: python 03_etl_pipeline.py
+
+      - name: Check every warehouse table
+        run: |
+          # table:expected rows. 35 orders on 35 distinct dates, 20 activity events,
+          # 15 customers, 12 products, 3 activity types; one fact row per order.
+          check() {
+            for pair in orders_dw:35 customer_activity:20 dim_customer:15 dim_product:12 \
+                        dim_time:35 dim_activity_type:3 fact_sales:35; do
+              table=${pair%%:*} expected=${pair##*:}
+              actual=$(docker compose exec -T postgres psql -U admin -d electronics_dw -At \
+                       -c "SELECT COUNT(*) FROM $table")
+              echo "$table: $actual (expected $expected)"
+              [ "$actual" = "$expected" ] || { echo "::error::$table has $actual rows, expected $expected"; exit 1; }
+            done
+            analytics=$(docker compose exec -T postgres psql -U admin -d electronics_dw -At \
+                        -c "SELECT COUNT(*) FROM customer_analytics")
+            echo "customer_analytics: $analytics"
+            [ "$analytics" -gt 0 ]
+          }
+          check
+          echo "--- second run: the ETL must replace the data, not duplicate it (BR-05)"
+          python 03_etl_pipeline.py > /dev/null
+          check
+
+      - name: Run the analytical queries on the loaded data
+        run: |
+          # Everything from SECTION 4 on: the 11 business queries. ON_ERROR_STOP makes a
+          # broken query fail the job. The results go to the job summary.
+          {
+            echo "### Analytical queries on the loaded warehouse"
+            echo '```'
+            sed -n '/SECTION 4/,$p' 04_postgresql_dw.sql \
+              | docker compose exec -T postgres psql -U admin -d electronics_dw -v ON_ERROR_STOP=1 -P pager=off
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Start Metabase
+        run: docker compose up -d --wait --wait-timeout 420 metabase
+
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose logs --tail 100
+      - name: Stop
+        if: always()
+        run: docker compose down -v
+
+  cluster:
+    name: Hadoop profile
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Start the NameNode and DataNode
+        run: docker compose --profile cluster up -d namenode datanode
+      - name: Wait for the DataNode to register with the NameNode
+        run: |
+          # The NameNode's JMX endpoint reports how many DataNodes are alive.
+          url='http://localhost:9870/jmx?qry=Hadoop:service=NameNode,name=FSNamesystemState'
+          for _ in $(seq 1 60); do
+            live=$(curl -fsS "$url" 2>/dev/null | jq -r '.beans[0].NumLiveDataNodes // 0') || live=0
+            echo "live DataNodes: $live"
+            [ "${live:-0}" -ge 1 ] && exit 0
+            sleep 3
+          done
+          exit 1
+      - name: Write and read a file in HDFS
+        run: |
+          echo "hello hdfs" | docker compose exec -T namenode hdfs dfs -put -f - /hello.txt
+          [ "$(docker compose exec -T namenode hdfs dfs -cat /hello.txt)" = "hello hdfs" ]
+      - name: Show logs on failure
+        if: failure()
+        run: docker compose --profile cluster logs --tail 100
+      - name: Stop
+        if: always()
+        run: docker compose --profile cluster down -v

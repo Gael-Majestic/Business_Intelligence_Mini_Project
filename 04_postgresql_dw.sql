@@ -3,9 +3,12 @@
 -- OLAP System: PostgreSQL Data Warehouse
 -- ============================================================
 
--- Create database (run as superuser before connecting)
--- CREATE DATABASE electronics_dw;
--- \c electronics_dw
+-- With docker-compose.yml this script runs automatically, inside the
+-- electronics_dw database, the first time the PostgreSQL container starts.
+-- By hand (as a superuser):
+--   CREATE DATABASE electronics_dw;
+--   \c electronics_dw
+--   \i 04_postgresql_dw.sql
 
 -- ============================================================
 -- SECTION 1 — CORE DW TABLES (required by project)
@@ -64,6 +67,10 @@ CREATE TABLE customer_analytics (
 -- ============================================================
 -- SECTION 2 — STAR SCHEMA DIMENSION + FACT TABLES
 -- These represent the analytical model diagrammed in the report
+-- (05_star_schema.html). The ETL fills them on every run:
+-- dim_customer and dim_product from the MySQL master tables,
+-- dim_time from the order dates, dim_activity_type with the
+-- three activity values, and fact_sales with one row per order.
 -- ============================================================
 
 DROP TABLE IF EXISTS fact_sales         CASCADE;
@@ -116,7 +123,9 @@ CREATE TABLE fact_sales (
 
 -- ============================================================
 -- SECTION 3 — DATA INTEGRATION
--- Populate customer_analytics after ETL loads base tables
+-- Populate customer_analytics after ETL loads base tables.
+-- (03_etl_pipeline.py runs the same statement after each load;
+-- here, on freshly created empty tables, it inserts nothing.)
 -- ============================================================
 
 INSERT INTO customer_analytics
@@ -215,15 +224,17 @@ FROM  customer_activity a
 GROUP BY a.product
 ORDER BY views DESC;
 
--- ── Query 7: Revenue breakdown by country ───────────────────
--- Business question: How does performance differ between DRC and South Africa?
+-- ── Query 7: Revenue breakdown by country and city ──────────
+-- Business question: Which markets generate the most revenue?
+-- (The sample data covers South African cities only.)
 SELECT
     country,
+    city,
     COUNT(order_id)   AS total_orders,
     SUM(amount)       AS total_revenue,
     COUNT(DISTINCT customer_name) AS unique_customers
 FROM  orders_dw
-GROUP BY country
+GROUP BY country, city
 ORDER BY total_revenue DESC;
 
 -- ── Query 8: Integrated view — customers who viewed then purchased ──
@@ -238,3 +249,48 @@ SELECT DISTINCT
 FROM  customer_analytics ca
 WHERE ca.activity = 'Purchased'
 ORDER BY ca.amount DESC;
+
+-- ============================================================
+-- SECTION 5 — QUERIES ON THE STAR SCHEMA
+-- The same kind of question, answered by joining the fact table
+-- to its dimensions: the typical OLAP query shape.
+-- ============================================================
+
+-- ── Query 9: Revenue by quarter and product category ────────
+-- Business question: How does each category perform per quarter?
+SELECT
+    t.year,
+    t.quarter,
+    p.category,
+    SUM(f.quantity)  AS units_sold,
+    SUM(f.amount)    AS revenue
+FROM  fact_sales  f
+JOIN  dim_time    t ON t.time_key    = f.time_key
+JOIN  dim_product p ON p.product_key = f.product_key
+GROUP BY t.year, t.quarter, p.category
+ORDER BY t.year, t.quarter, revenue DESC;
+
+-- ── Query 10: Discounts — sale price versus list price ──────
+-- Business question: Were any products sold below their list price? (BR-01)
+SELECT
+    p.product_name,
+    p.unit_price                                   AS list_price,
+    ROUND(SUM(f.amount) / SUM(f.quantity), 2)      AS avg_sale_price,
+    SUM(f.quantity) * p.unit_price - SUM(f.amount) AS total_discount
+FROM  fact_sales  f
+JOIN  dim_product p ON p.product_key = f.product_key
+GROUP BY p.product_name, p.unit_price
+ORDER BY total_discount DESC, p.product_name;
+
+-- ── Query 11: Revenue by city and weekday ───────────────────
+-- Business question: On which weekdays do customers in each city buy?
+SELECT
+    c.city,
+    t.day_of_week,
+    COUNT(*)       AS orders,
+    SUM(f.amount)  AS revenue
+FROM  fact_sales   f
+JOIN  dim_customer c ON c.customer_key = f.customer_key
+JOIN  dim_time     t ON t.time_key     = f.time_key
+GROUP BY c.city, t.day_of_week
+ORDER BY c.city, revenue DESC;
