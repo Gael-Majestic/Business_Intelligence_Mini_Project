@@ -16,3 +16,8 @@ updates:
     directory: /
     schedule:
       interval: monthly
+    # Database images stay on their current major release line on purpose:
+    # a major upgrade (e.g. PostgreSQL 16 -> 18) needs a data migration plan.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
