@@ -35,7 +35,7 @@ services:
   # MONGODB (OLTP source: customer activity)
   # ----------------------------
   mongodb:
-    image: mongo:8.0.34
+    image: mongo:9.0.4
     ports:
       - "127.0.0.1:27017:27017"
     volumes:
