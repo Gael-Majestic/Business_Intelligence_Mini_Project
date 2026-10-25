@@ -53,7 +53,7 @@ services:
   # POSTGRES (Data Warehouse)
   # ----------------------------
   postgres:
-    image: postgres:16.15-alpine
+    image: postgres:18.4-alpine
     environment:
       POSTGRES_USER: ${PG_USER:-admin}
       POSTGRES_PASSWORD: ${PG_PASSWORD:-adminpass}
