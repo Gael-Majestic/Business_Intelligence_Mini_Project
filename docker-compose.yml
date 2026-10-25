@@ -110,7 +110,7 @@ services:
   # expects: each CORE-SITE.XML_* / HDFS-SITE.XML_* variable becomes a property
   # in that XML file. HDFS data is not kept between runs (no volume).
   namenode:
-    image: apache/hadoop:3.3.6
+    image: apache/hadoop:3.5.0
     profiles: ["cluster"]
     hostname: namenode
     command: ["hdfs", "namenode"]
@@ -122,7 +122,7 @@ services:
       - "127.0.0.1:9870:9870"   # NameNode web UI
 
   datanode:
-    image: apache/hadoop:3.3.6
+    image: apache/hadoop:3.5.0
     profiles: ["cluster"]
     command: ["hdfs", "datanode"]
     environment: *hadoop-config
